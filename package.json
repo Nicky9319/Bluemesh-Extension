@@ -19,6 +19,9 @@
       "command": "bluemesh.refreshDirectory",
       "title": "Refresh",
       "icon": "$(refresh)"
+    }, {
+      "command": "bluemesh.showWidget",
+      "title": "Show Bluemesh Widget"
     }],
     "viewsContainers": {
       "activitybar": [{
