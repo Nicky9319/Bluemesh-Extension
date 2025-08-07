@@ -16,12 +16,17 @@
       "command": "bluemesh.activate",
       "title": "Bluemesh"
     }, {
-      "command": "bluemesh.refreshDirectory",
-      "title": "Refresh",
-      "icon": "$(refresh)"
-    }, {
       "command": "bluemesh.showWidget",
       "title": "Show Bluemesh Widget"
+    }, {
+      "command": "bluemesh.openHome",
+      "title": "Home"
+    }, {
+      "command": "bluemesh.openConsole",
+      "title": "Console"
+    }, {
+      "command": "bluemesh.openArchitectureView",
+      "title": "Architecture View"
     }],
     "viewsContainers": {
       "activitybar": [{
@@ -32,16 +37,22 @@
     },
     "views": {
       "bluemesh-explorer": [{
-        "id": "bluemesh.directoryView",
-        "name": "Directory Contents",
-        "when": "true"
+        "id": "bluemesh.navigationView",
+        "name": "Navigation",
+        "when": "true",
+        "icon": "$(list-tree)"
       }]
     },
     "menus": {
-      "view/title": [{
-        "command": "bluemesh.refreshDirectory",
-        "when": "view == bluemesh.directoryView",
-        "group": "navigation"
+      "view/item/context": [{
+        "command": "bluemesh.openHome",
+        "when": "view == bluemesh.navigationView && viewItem == home"
+      }, {
+        "command": "bluemesh.openConsole",
+        "when": "view == bluemesh.navigationView && viewItem == console"
+      }, {
+        "command": "bluemesh.openArchitectureView",
+        "when": "view == bluemesh.navigationView && viewItem == architecture"
       }]
     }
   },

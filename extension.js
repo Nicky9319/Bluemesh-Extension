@@ -5,11 +5,10 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Directory Tree Data Provider for VS Code Tree View
+ * Navigation Data Provider for VS Code Tree View
  */
-class DirectoryTreeDataProvider {
-	constructor(workspaceRoot) {
-		this.workspaceRoot = workspaceRoot;
+class NavigationDataProvider {
+	constructor() {
 		this._onDidChangeTreeData = new vscode.EventEmitter();
 		this.onDidChangeTreeData = this._onDidChangeTreeData.event;
 	}
@@ -17,119 +16,75 @@ class DirectoryTreeDataProvider {
 	refresh() {
 		this._onDidChangeTreeData.fire();
 	}
-5
+
 	getTreeItem(element) {
 		return element;
 	}
 
 	getChildren(element) {
-		if (!this.workspaceRoot) {
-			vscode.window.showInformationMessage('No workspace folder open');
-			return Promise.resolve([]);
+		if (!element) {
+			// Return the three main navigation items
+			return Promise.resolve([
+				new NavigationItem('Home', 'home', vscode.TreeItemCollapsibleState.None, 'home-outline'),
+				new NavigationItem('Console', 'console', vscode.TreeItemCollapsibleState.None, 'terminal'),
+				new NavigationItem('Architecture View', 'architecture', vscode.TreeItemCollapsibleState.None, 'graph-line')
+			]);
 		}
-
-		if (element) {
-			// If element is provided, show its children
-			return Promise.resolve(this.getDirectoryContents(element.resourceUri.fsPath));
-		} else {
-			// If no element, show root directory contents
-			return Promise.resolve(this.getDirectoryContents(this.workspaceRoot));
-		}
-	}
-
-	getDirectoryContents(dirPath) {
-		if (this.pathExists(dirPath)) {
-			try {
-				return fs.readdirSync(dirPath).map(item => {
-					const itemPath = path.join(dirPath, item);
-					try {
-						const stat = fs.statSync(itemPath);
-						
-						return new DirectoryItem(
-							item,
-							vscode.Uri.file(itemPath),
-							stat.isDirectory() ? 
-								vscode.TreeItemCollapsibleState.Collapsed : 
-								vscode.TreeItemCollapsibleState.None,
-							stat.isDirectory() ? 'folder' : 'file',
-							stat
-						);
-					} catch (statError) {
-						// If we can't stat the file, show it as a file with unknown status
-						return new DirectoryItem(
-							`${item} (access denied)`,
-							vscode.Uri.file(itemPath),
-							vscode.TreeItemCollapsibleState.None,
-							'file',
-							{ size: 0, mtime: new Date(), isDirectory: () => false }
-						);
-					}
-				}).filter(item => item !== null);
-			} catch (readError) {
-				vscode.window.showErrorMessage(`Failed to read directory: ${dirPath}`);
-				return [];
-			}
-		} else {
-			return [];
-		}
-	}
-
-	pathExists(p) {
-		try {
-			fs.accessSync(p);
-		} catch (err) {
-			return false;
-		}
-		return true;
+		return Promise.resolve([]);
 	}
 }
 
 /**
- * Directory Item for Tree View
+ * Navigation Item for Tree View
  */
-class DirectoryItem extends vscode.TreeItem {
-	constructor(label, resourceUri, collapsibleState, contextValue, stats) {
+class NavigationItem extends vscode.TreeItem {
+	constructor(label, contextValue, collapsibleState, iconName) {
 		super(label, collapsibleState);
-		this.resourceUri = resourceUri;
 		this.contextValue = contextValue;
-		this.tooltip = this.getTooltip(stats);
-		this.description = this.getDescription(stats);
+		this.tooltip = label;
+		this.iconPath = new vscode.ThemeIcon(iconName);
 		
-		if (contextValue === 'file') {
-			this.command = {
-				command: 'vscode.open',
-				title: 'Open File',
-				arguments: [resourceUri]
-			};
-		}
-		
-		// Set appropriate icons
-		if (contextValue === 'folder') {
-			this.iconPath = new vscode.ThemeIcon('folder');
-		} else {
-			this.iconPath = new vscode.ThemeIcon('file');
-		}
+		// Set the command to execute when clicked
+		this.command = {
+			command: getCommandName(contextValue),
+			title: `Open ${label}`,
+			arguments: [this]
+		};
 	}
+}
 
-	getTooltip(stats) {
-		const size = stats.isDirectory() ? 'Directory' : `${stats.size} bytes`;
-		const modified = stats.mtime.toLocaleDateString();
-		return `${this.label}\nSize: ${size}\nModified: ${modified}`;
+/**
+ * Helper function to get the correct command name
+ */
+function getCommandName(contextValue) {
+	switch (contextValue) {
+		case 'home':
+			return 'bluemesh.openHome';
+		case 'console':
+			return 'bluemesh.openConsole';
+		case 'architecture':
+			return 'bluemesh.openArchitectureView';
+		default:
+			return 'bluemesh.openHome';
 	}
+}
 
-	getDescription(stats) {
-		if (stats.isDirectory()) {
-			return '';
+/**
+ * Function to open a navigation tab and display its content
+ */
+function openNavigationTab(tabName) {
+	// Create and show the webview panel for the selected tab
+	const panel = vscode.window.createWebviewPanel(
+		`bluemesh${tabName.replace(/\s/g, '')}`, // Identifies the type of the webview
+		`Bluemesh - ${tabName}`, // Title of the panel displayed to the user
+		vscode.ViewColumn.One, // Editor column to show the new webview panel in
+		{
+			enableScripts: true // Enable JavaScript in the webview
 		}
-		// Show file size for files
-		if (stats.size < 1024) {
-			return `${stats.size} B`;
-		} else if (stats.size < 1024 * 1024) {
-			return `${(stats.size / 1024).toFixed(1)} KB`;
-		} else {
-			return `${(stats.size / (1024 * 1024)).toFixed(1)} MB`;
-		}
-	}
+	);
+
+	// Set the HTML content for the webview based on the tab
+	panel.webview.html = getNavigationTabContent(tabName);
 }
 
 // This method is called when your extension is activated
@@ -149,13 +104,13 @@ function activate(context) {
 		? vscode.workspace.workspaceFolders[0].uri.fsPath
 		: undefined;
 
-	// Create the directory tree data provider
-	const directoryProvider = new DirectoryTreeDataProvider(workspaceRoot);
+	// Create the navigation data provider
+	const navigationProvider = new NavigationDataProvider();
 	
 	// Register the tree view
-	const treeView = vscode.window.createTreeView('bluemesh.directoryView', {
-		treeDataProvider: directoryProvider,
-		showCollapseAll: true
+	const treeView = vscode.window.createTreeView('bluemesh.navigationView', {
+		treeDataProvider: navigationProvider,
+		showCollapseAll: false
 	});
 
 	// Register commands
@@ -168,77 +123,146 @@ function activate(context) {
 		vscode.commands.executeCommand('bluemesh.showWidget');
 	});
 
-	const refreshDisposable = vscode.commands.registerCommand('bluemesh.refreshDirectory', () => {
-		directoryProvider.refresh();
-		vscode.window.showInformationMessage('Directory refreshed!');
+	// Navigation commands
+	const homeDisposable = vscode.commands.registerCommand('bluemesh.openHome', () => {
+		openNavigationTab('Home');
+	});
+
+	const consoleDisposable = vscode.commands.registerCommand('bluemesh.openConsole', () => {
+		openNavigationTab('Console');
+	});
+
+	const architectureDisposable = vscode.commands.registerCommand('bluemesh.openArchitectureView', () => {
+		openNavigationTab('Architecture View');
 	});
 
 	// Create a command to show the widget in the main editor area
-	   const showWidgetDisposable = vscode.commands.registerCommand('bluemesh.showWidget', () => {
-			   // Check for services.json in the workspace root
-			   if (!workspaceRoot) {
-					   vscode.window.showErrorMessage('No workspace folder open. Bluemesh extension cannot work.');
-					   return;
-			   }
-			   const servicesPath = path.join(workspaceRoot, 'services.json');
-			   if (!fs.existsSync(servicesPath)) {
-					   vscode.window.showErrorMessage('Bluemesh extension cannot work: services.json not found in the root directory.');
-					   return;
-			   }
+	const showWidgetDisposable = vscode.commands.registerCommand('bluemesh.showWidget', () => {
+		// Check for services.json in the workspace root
+		if (!workspaceRoot) {
+			vscode.window.showErrorMessage('No workspace folder open. Bluemesh extension cannot work.');
+			return;
+		}
+		const servicesPath = path.join(workspaceRoot, 'services.json');
+		if (!fs.existsSync(servicesPath)) {
+			vscode.window.showErrorMessage('Bluemesh extension cannot work: services.json not found in the root directory.');
+			return;
+		}
 
-			   // Create and show the webview panel
-			   const panel = vscode.window.createWebviewPanel(
-					   'bluemeshWidget', // Identifies the type of the webview
-					   'Bluemesh Widget', // Title of the panel displayed to the user
-					   vscode.ViewColumn.One, // Editor column to show the new webview panel in
-					   {
-							   enableScripts: true // Enable JavaScript in the webview
-					   }
-			   );
+		// Create and show the webview panel
+		const panel = vscode.window.createWebviewPanel(
+			'bluemeshWidget', // Identifies the type of the webview
+			'Bluemesh Widget', // Title of the panel displayed to the user
+			vscode.ViewColumn.One, // Editor column to show the new webview panel in
+			{
+				enableScripts: true // Enable JavaScript in the webview
+			}
+		);
 
-			   // Set the HTML content for the webview
-			   panel.webview.html = getWebviewContent();
+		// Set the HTML content for the webview
+		panel.webview.html = getWebviewContent();
 
-			   // Handle messages from the webview
-			   panel.webview.onDidReceiveMessage(
-					   message => {
-							   switch (message.command) {
-									   case 'showHelloWorld':
-											   // Display Hello World message
-											   vscode.window.showInformationMessage('Hello World from Bluemesh Widget!');
-											   
-											   // Also update the webview content to show Hello World
-											   panel.webview.postMessage({ command: 'displayHelloWorld' });
-											   break;
-									   case 'alert':
-											   vscode.window.showInformationMessage(message.text);
-											   break;
-							   }
-					   },
-					   undefined,
-					   context.subscriptions
-			   );
-	   });
-
-	// Listen for workspace folder changes
-	const workspaceChangeDisposable = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-		const newWorkspaceRoot = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-			? vscode.workspace.workspaceFolders[0].uri.fsPath
-			: undefined;
-		
-		directoryProvider.workspaceRoot = newWorkspaceRoot;
-		directoryProvider.refresh();
+		// Handle messages from the webview
+		panel.webview.onDidReceiveMessage(
+			message => {
+				switch (message.command) {
+					case 'showHelloWorld':
+						// Display Hello World message
+						vscode.window.showInformationMessage('Hello World from Bluemesh Widget!');
+						
+						// Also update the webview content to show Hello World
+						panel.webview.postMessage({ command: 'displayHelloWorld' });
+						break;
+					case 'alert':
+						vscode.window.showInformationMessage(message.text);
+						break;
+				}
+			},
+			undefined,
+			context.subscriptions
+		);
 	});
 
 	// Add disposables to subscriptions
 	context.subscriptions.push(bluemeshDisposable);
-	context.subscriptions.push(refreshDisposable);
+	context.subscriptions.push(homeDisposable);
+	context.subscriptions.push(consoleDisposable);
+	context.subscriptions.push(architectureDisposable);
 	context.subscriptions.push(showWidgetDisposable);
-	context.subscriptions.push(workspaceChangeDisposable);
 	context.subscriptions.push(treeView);
 
 	// Show a welcome message
 	vscode.window.showInformationMessage('Bluemesh Explorer is ready! Check the left panel.');
+}
+
+/**
+ * Generate HTML content for navigation tabs
+ */
+function getNavigationTabContent(tabName) {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluemesh - ${tabName}</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .tab-header {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .tab-title {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: var(--vscode-titleBar-activeForeground);
+            margin: 0;
+        }
+        .tab-subtitle {
+            font-size: 1.2em;
+            color: var(--vscode-descriptionForeground);
+            margin-top: 10px;
+        }
+        .content-area {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            padding: 40px;
+            border-radius: 10px;
+            min-height: 300px;
+        }
+        .placeholder-text {
+            font-size: 1.1em;
+            color: var(--vscode-descriptionForeground);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="tab-header">
+            <h1 class="tab-title">📍 ${tabName}</h1>
+            <p class="tab-subtitle">You have successfully opened the ${tabName} tab</p>
+        </div>
+        
+        <div class="content-area">
+            <p class="placeholder-text">
+                This is the ${tabName} view. Content for this tab will be implemented here.
+            </p>
+        </div>
+    </div>
+</body>
+</html>`;
 }
 
 /**
